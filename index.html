@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Work Timer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: #f7f7f8;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+    }
+
+    .timer-card {
+      background: white;
+      padding: 32px;
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+      width: 100%;
+      max-width: 440px;
+      text-align: center;
+    }
+
+    h1 {
+      margin-top: 0;
+      margin-bottom: 8px;
+      font-size: 28px;
+      color: #222;
+    }
+
+    .subtext {
+      font-size: 14px;
+      color: #777;
+      margin-bottom: 20px;
+    }
+
+    .time-display {
+      font-size: 48px;
+      font-weight: bold;
+      margin: 24px 0 10px;
+      color: #111;
+      letter-spacing: 1px;
+    }
+
+    .status {
+      margin-bottom: 20px;
+      color: #666;
+      font-size: 15px;
+      min-height: 22px;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: none;
+      padding: 12px 20px;
+      border-radius: 12px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: 0.2s ease;
+    }
+
+    button:hover {
+      opacity: 0.94;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .start-btn {
+      background: #111;
+      color: white;
+    }
+
+    .stop-btn {
+      background: #e9e9ec;
+      color: #111;
+    }
+
+    .clear-btn {
+      background: #f4f4f5;
+      color: #444;
+    }
+
+    .session-log {
+      text-align: left;
+      margin-top: 20px;
+      background: #fafafa;
+      padding: 16px;
+      border-radius: 14px;
+      max-height: 320px;
+      overflow-y: auto;
+    }
+
+    .session-log h2 {
+      margin: 0 0 12px;
+      font-size: 18px;
+      color: #222;
+    }
+
+    .empty-state {
+      font-size: 14px;
+      color: #888;
+      padding: 8px 0;
+    }
+
+    .session-item {
+      padding: 12px 0;
+      border-bottom: 1px solid #ececec;
+      font-size: 14px;
+      color: #333;
+      line-height: 1.5;
+    }
+
+    .session-item:last-child {
+      border-bottom: none;
+    }
+
+    .session-duration {
+      display: inline-block;
+      margin-top: 6px;
+      font-weight: bold;
+      color: #111;
+    }
+  </style>
+</head>
+<body>
+  <div class="timer-card">
+    <h1>Work Timer</h1>
+    <div class="subtext">Track your work sessions</div>
+
+    <div class="time-display" id="timer">00:00:00</div>
+    <div class="status" id="status">Not running</div>
+
+    <div class="buttons">
+      <button class="start-btn" id="startBtn">Start</button>
+      <button class="stop-btn" id="stopBtn" disabled>Stop</button>
+      <button class="clear-btn" id="clearBtn">Clear History</button>
+    </div>
+
+    <div class="session-log">
+      <h2>Session History</h2>
+      <div id="logList"></div>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEYS = {
+      sessions: "workTimerSessions",
+      activeStartTime: "workTimerActiveStartTime"
+    };
+
+    let startTime = null;
+    let timerInterval = null;
+    let isRunning = false;
+    let sessions = [];
+
+    const timerDisplay = document.getElementById("timer");
+    const statusDisplay = document.getElementById("status");
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const clearBtn = document.getElementById("clearBtn");
+    const logList = document.getElementById("logList");
+
+    function formatDuration(ms) {
+      const totalSeconds = Math.floor(ms / 1000);
+      const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, "0");
+      const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, "0");
+      const seconds = String(totalSeconds % 60).padStart(2, "0");
+      return `${hours}:${minutes}:${seconds}`;
+    }
+
+    function formatDateTime(date) {
+      return new Date(date).toLocaleString([], {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+    }
+
+    function saveSessions() {
+      localStorage.setItem(STORAGE_KEYS.sessions, JSON.stringify(sessions));
+    }
+
+    function loadSessions() {
+      const saved = localStorage.getItem(STORAGE_KEYS.sessions);
+      sessions = saved ? JSON.parse(saved) : [];
+    }
+
+    function saveActiveStartTime(date) {
+      if (date) {
+        localStorage.setItem(STORAGE_KEYS.activeStartTime, date.toISOString());
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.activeStartTime);
+      }
+    }
+
+    function loadActiveStartTime() {
+      const saved = localStorage.getItem(STORAGE_KEYS.activeStartTime);
+      return saved ? new Date(saved) : null;
+    }
+
+    function updateTimer() {
+      if (!startTime) return;
+      const now = new Date();
+      const elapsed = now - startTime;
+      timerDisplay.textContent = formatDuration(elapsed);
+    }
+
+    function renderSessions() {
+      logList.innerHTML = "";
+
+      if (sessions.length === 0) {
+        logList.innerHTML = `<div class="empty-state">No sessions yet.</div>`;
+        return;
+      }
+
+      sessions.forEach((session) => {
+        const sessionItem = document.createElement("div");
+        sessionItem.className = "session-item";
+        sessionItem.innerHTML = `
+          <div><strong>Start:</strong> ${formatDateTime(session.start)}</div>
+          <div><strong>End:</strong> ${formatDateTime(session.end)}</div>
+          <div class="session-duration">Time spent: ${formatDuration(session.duration)}</div>
+        `;
+        logList.appendChild(sessionItem);
+      });
+    }
+
+    function startSession() {
+      if (isRunning) return;
+
+      startTime = new Date();
+      isRunning = true;
+
+      saveActiveStartTime(startTime);
+
+      statusDisplay.textContent = `Started at ${formatDateTime(startTime)}`;
+      timerInterval = setInterval(updateTimer, 1000);
+      updateTimer();
+
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+    }
+
+    function stopSession() {
+      if (!isRunning || !startTime) return;
+
+      const endTime = new Date();
+      const duration = endTime - startTime;
+
+      const session = {
+        start: startTime.toISOString(),
+        end: endTime.toISOString(),
+        duration: duration
+      };
+
+      sessions.unshift(session);
+      saveSessions();
+
+      clearInterval(timerInterval);
+      timerInterval = null;
+      isRunning = false;
+
+      saveActiveStartTime(null);
+
+      renderSessions();
+
+      timerDisplay.textContent = "00:00:00";
+      statusDisplay.textContent = `Last session: ${formatDuration(duration)}`;
+
+      startTime = null;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    }
+
+    function clearHistory() {
+      const confirmed = confirm("Delete all saved session history?");
+      if (!confirmed) return;
+
+      sessions = [];
+      saveSessions();
+      renderSessions();
+    }
+
+    function restoreRunningSession() {
+      const savedStart = loadActiveStartTime();
+
+      if (!savedStart) return;
+
+      startTime = savedStart;
+      isRunning = true;
+
+      statusDisplay.textContent = `Started at ${formatDateTime(startTime)}`;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+
+      updateTimer();
+      timerInterval = setInterval(updateTimer, 1000);
+    }
+
+    startBtn.addEventListener("click", startSession);
+    stopBtn.addEventListener("click", stopSession);
+    clearBtn.addEventListener("click", clearHistory);
+
+    loadSessions();
+    renderSessions();
+    restoreRunningSession();
+  </script>
+</body>
+</html>
